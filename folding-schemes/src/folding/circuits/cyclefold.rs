@@ -625,6 +625,7 @@ impl<CFG: CycleFoldConfig, GC: CurveVar<CFG::C, CF2<CFG::C>>> ConstraintSynthesi
 
         let x = [
             r_fp,
+            a_fp,
             points_aux,
             p_folded.to_constraint_field()?[..2].to_vec(),
         ]

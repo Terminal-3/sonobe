@@ -278,6 +278,16 @@ where
             NonNativeUintVar::from(&bits)
         };
 
+        //#region Pairing Folding: a bits
+        use ark_r1cs_std::prelude::ToBitsGadget;
+        // convert a_bits to a `NonNativeFieldVar`
+        let pf_a_nonnat = {
+            let mut bits = pf_a_i.to_bits_le()?;
+            bits.resize(C1::BaseField::MODULUS_BIT_SIZE as usize, Boolean::FALSE);
+            NonNativeUintVar::from(&bits)
+        };
+        //#endregion
+
         // P.4.a compute and check the first output of F'
 
         // get z_{i+1} from the F circuit
@@ -317,24 +327,34 @@ where
         // CycleFold part
 
         //#region Pairing folding: Compute intputs to cyclefold circuits
-        let cfC_x = vec![
+        let a_zero_bits =
+            vec![Boolean::<C1::ScalarField>::FALSE; C1::BaseField::MODULUS_BIT_SIZE as usize];
+        let a_zero = NonNativeUintVar::from(&a_zero_bits);
+        let pf_cfC_x = vec![
             r_nonnat.clone(),
-            pf_C_i.x,
-            pf_C_i.y,
-            pf_c_i.x,
-            pf_c_i.y,
+            a_zero,
             pf_C_i1.x,
             pf_C_i1.y,
+            pf_C_i.x,
+            pf_C_i.y,
+            pf_c_i.x.clone(),
+            pf_c_i.y.clone(),
+            // we don't care about the last value as it's multiplied by zero
+            pf_c_i.x.clone(),
+            pf_c_i.y.clone(),
         ];
 
-        let cfD_x = vec![
+        let pf_cfD_x = vec![
             r_nonnat.clone(),
+            pf_a_nonnat.clone(),
+            pf_D_i1.x,
+            pf_D_i1.y,
             pf_D_i.x,
             pf_D_i.y,
             pf_c_prime_i.x,
             pf_c_prime_i.y,
-            pf_D_i1.x,
-            pf_D_i1.y,
+            pf_c_i.x,
+            pf_c_i.y,
         ];
         //#endregion
 
