@@ -536,6 +536,119 @@ impl<CFG: CycleFoldConfig, GC: CurveVar<CFG::C, CF2<CFG::C>>> ConstraintSynthesi
     }
 }
 
+//#region Pairing folding: CycleFoldCircuit
+const PAIRING_FOLDING_POINTS_NUMBER: usize = 3;
+
+/// PairingCycleFoldCircuit checks the elliptic curve points folding
+/// We want to check two computations:
+/// 1. C_{i+1} = C_i + r_i * c_i
+/// 2. C_{i+1} = C_i + r_i * c'_i + r_i a_i * c_i
+#[derive(Debug, Clone)]
+pub struct PairingCycleFoldCircuit<CFG: CycleFoldConfig, GC: CurveVar<CFG::C, CF2<CFG::C>>> {
+    pub _gc: PhantomData<GC>,
+    /// r_bits is the bit representation of the r variable in the folding
+    pub r_bits: Option<Vec<bool>>,
+    /// a_bits is the bit representation of the r variable in the folding
+    pub a_bits: Option<Vec<bool>>,
+    /// points to be folded in the CycleFoldCircuit
+    pub points: Option<Vec<CFG::C>>,
+}
+
+impl<CFG: CycleFoldConfig, GC: CurveVar<CFG::C, CF2<CFG::C>>> PairingCycleFoldCircuit<CFG, GC> {
+    /// n_points indicates the number of points being folded in the CycleFoldCircuit
+    pub fn empty() -> Self {
+        Self {
+            _gc: PhantomData,
+            r_bits: None,
+            a_bits: None,
+            points: None,
+        }
+    }
+}
+
+impl<CFG: CycleFoldConfig, GC: CurveVar<CFG::C, CF2<CFG::C>>> ConstraintSynthesizer<CF2<CFG::C>>
+    for PairingCycleFoldCircuit<CFG, GC>
+{
+    fn generate_constraints(
+        self,
+        cs: ConstraintSystemRef<CF2<CFG::C>>,
+    ) -> Result<(), SynthesisError> {
+        let r_bits = Vec::<Boolean<CF2<CFG::C>>>::new_witness(cs.clone(), || {
+            Ok(self
+                .r_bits
+                .unwrap_or(vec![false; CFG::RANDOMNESS_BIT_LENGTH]))
+        })?;
+        let a_bits = Vec::<Boolean<CF2<CFG::C>>>::new_witness(cs.clone(), || {
+            Ok(self
+                .a_bits
+                .unwrap_or(vec![false; CFG::RANDOMNESS_BIT_LENGTH]))
+        })?;
+        let points = Vec::<GC>::new_witness(cs.clone(), || {
+            let mut points = self
+                .points
+                .unwrap_or(vec![CFG::C::zero(); PAIRING_FOLDING_POINTS_NUMBER]);
+            while points.len() < PAIRING_FOLDING_POINTS_NUMBER {
+                points.push(CFG::C::zero());
+            }
+            Ok(points)
+        })?;
+
+        #[cfg(test)]
+        {
+            assert_eq!(PAIRING_FOLDING_POINTS_NUMBER, points.len());
+            assert_eq!(CFG::RANDOMNESS_BIT_LENGTH, r_bits.len());
+            assert_eq!(CFG::RANDOMNESS_BIT_LENGTH, a_bits.len());
+        }
+
+        let p_folded = points[0].clone();
+        let p_folded = p_folded + points[1].scalar_mul_le(r_bits.iter())?;
+        let p_folded = p_folded
+            + points[2]
+                .scalar_mul_le(r_bits.iter())?
+                .scalar_mul_le(a_bits.iter())?;
+
+        let r_fp = r_bits
+            .chunks(CF2::<CFG::C>::MODULUS_BIT_SIZE as usize - 1)
+            .map(Boolean::le_bits_to_fp)
+            .collect::<Result<Vec<_>, _>>()?;
+        let a_fp = a_bits
+            .chunks(CF2::<CFG::C>::MODULUS_BIT_SIZE as usize - 1)
+            .map(Boolean::le_bits_to_fp)
+            .collect::<Result<Vec<_>, _>>()?;
+        let points_aux = points
+            .iter()
+            .map(|p_i| Ok(p_i.to_constraint_field()?[..2].to_vec()))
+            .collect::<Result<Vec<_>, SynthesisError>>()?
+            .into_iter()
+            .flatten()
+            .collect();
+
+        let x = [
+            r_fp,
+            points_aux,
+            p_folded.to_constraint_field()?[..2].to_vec(),
+        ]
+        .concat();
+        // #[cfg(test)]
+        // assert_eq!(x.len(), CFG::IO_LEN); // non-constrained sanity check
+
+        // This line "converts" `x` from a witness to a public input.
+        // Instead of directly modifying the constraint system, we explicitly
+        // allocate a public input and enforce that its value is indeed `x`.
+        // While comparing `x` with itself seems redundant, this is necessary
+        // because:
+        // - `.value()` allows an honest prover to extract public inputs without
+        //   computing them outside the circuit.
+        // - `.enforce_equal()` prevents a malicious prover from claiming wrong
+        //   public inputs that are not the honest `x` computed in-circuit.
+        Vec::new_input(cs.clone(), || x.value())?.enforce_equal(&x)?;
+
+        Ok(())
+    }
+}
+
+//#endregion
+
 /// CycleFoldNIFS is a wrapper on top of Nova's NIFS, which just replaces the `prove` and `verify`
 /// methods to use a different ChallengeGadget, but internally reuses the other Nova's NIFS
 /// methods.

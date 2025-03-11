@@ -79,6 +79,18 @@ pub struct AugmentedFCircuit<
     pub(super) cf_U_i: Option<CycleFoldCommittedInstance<C2>>, // input
     pub(super) cf1_cmT: Option<C2>,
     pub(super) cf2_cmT: Option<C2>,
+
+    //#region Pairing folding: Additional data
+    pub(super) pf_cf3_cmT: Option<C2>,
+    pub(super) pf_cf4_cmT: Option<C2>,
+    pub(super) pf_a_i: Option<C1::ScalarField>,
+    pub(super) pf_c_i: Option<C1>,
+    pub(super) pf_c_prime_i: Option<C1>,
+    pub(super) pf_C_i: Option<C1>,
+    pub(super) pf_C_i1: Option<C1>,
+    pub(super) pf_D_i: Option<C1>,
+    pub(super) pf_D_i1: Option<C1>,
+    //#endregion
 }
 
 impl<C1: CurveGroup, C2: CurveGroup, GC2: CurveVar<C2, CF2<C2>>, FC: FCircuit<CF1<C1>>>
@@ -106,6 +118,15 @@ impl<C1: CurveGroup, C2: CurveGroup, GC2: CurveVar<C2, CF2<C2>>, FC: FCircuit<CF
             cf_U_i: None,
             cf1_cmT: None,
             cf2_cmT: None,
+            pf_cf3_cmT: None,
+            pf_cf4_cmT: None,
+            pf_a_i: None,
+            pf_c_i: None,
+            pf_c_prime_i: None,
+            pf_C_i: None,
+            pf_C_i1: None,
+            pf_D_i: None,
+            pf_D_i1: None,
         }
     }
 }
@@ -165,6 +186,37 @@ where
         let cf1_cmT = GC2::new_witness(cs.clone(), || Ok(self.cf1_cmT.unwrap_or_else(C2::zero)))?;
         let cf2_cmT = GC2::new_witness(cs.clone(), || Ok(self.cf2_cmT.unwrap_or_else(C2::zero)))?;
 
+        //#region Pairing folding: Init values
+
+        let pf_cf3_cmT =
+            GC2::new_witness(cs.clone(), || Ok(self.pf_cf3_cmT.unwrap_or_else(C2::zero)))?;
+        let pf_cf4_cmT =
+            GC2::new_witness(cs.clone(), || Ok(self.pf_cf4_cmT.unwrap_or_else(C2::zero)))?;
+
+        let pf_a_i = FpVar::<C1::ScalarField>::new_witness(cs.clone(), || {
+            Ok(self.pf_a_i.unwrap_or_else(C1::ScalarField::zero))
+        })?;
+        let pf_c_i = NonNativeAffineVar::new_witness(cs.clone(), || {
+            Ok(self.pf_c_i.unwrap_or_else(C1::zero))
+        })?;
+        let pf_c_prime_i = NonNativeAffineVar::new_witness(cs.clone(), || {
+            Ok(self.pf_c_prime_i.unwrap_or_else(C1::zero))
+        })?;
+        let pf_C_i = NonNativeAffineVar::new_witness(cs.clone(), || {
+            Ok(self.pf_C_i.unwrap_or_else(C1::zero))
+        })?;
+        let pf_C_i1 = NonNativeAffineVar::new_witness(cs.clone(), || {
+            Ok(self.pf_C_i1.unwrap_or_else(C1::zero))
+        })?;
+        let pf_D_i = NonNativeAffineVar::new_witness(cs.clone(), || {
+            Ok(self.pf_D_i.unwrap_or_else(C1::zero))
+        })?;
+        let pf_D_i1 = NonNativeAffineVar::new_witness(cs.clone(), || {
+            Ok(self.pf_D_i1.unwrap_or_else(C1::zero))
+        })?;
+
+        //#endregion
+
         // `sponge` is for digest computation.
         let sponge = PoseidonSpongeVar::<C1::ScalarField>::new(cs.clone(), &self.poseidon_config);
         // `transcript` is for challenge generation.
@@ -177,7 +229,13 @@ where
         // u_i.x[0] = H(i, z_0, z_i, U_i)
         let (u_i_x, U_i_vec) = U_i.clone().hash(&sponge, &pp_hash, &i, &z_0, &z_i)?;
         // u_i.x[1] = H(cf_U_i)
+        //#region Pairing folding: modified code
         let (cf_u_i_x, cf_U_i_vec) = cf_U_i.clone().hash(&sponge, pp_hash.clone())?;
+        //#endregion
+
+        //#region Pairing folding: TODO, update second intance
+        // let (cf_u_i_x, cf_U_i_vec) = cf_U_i.clone().hash(&sponge, pp_hash.clone())?;
+        //#endregion
 
         // P.2. Construct u_i
         let u_i = CommittedInstanceVar {
@@ -257,6 +315,29 @@ where
         FpVar::new_input(cs.clone(), || x.value())?.enforce_equal(&x)?;
 
         // CycleFold part
+
+        //#region Pairing folding: Compute intputs to cyclefold circuits
+        let cfC_x = vec![
+            r_nonnat.clone(),
+            pf_C_i.x,
+            pf_C_i.y,
+            pf_c_i.x,
+            pf_c_i.y,
+            pf_C_i1.x,
+            pf_C_i1.y,
+        ];
+
+        let cfD_x = vec![
+            r_nonnat.clone(),
+            pf_D_i.x,
+            pf_D_i.y,
+            pf_c_prime_i.x,
+            pf_c_prime_i.y,
+            pf_D_i1.x,
+            pf_D_i1.y,
+        ];
+        //#endregion
+
         // C.1. Compute cf1_u_i.x and cf2_u_i.x
         let cfW_x = vec![
             r_nonnat.clone(),
