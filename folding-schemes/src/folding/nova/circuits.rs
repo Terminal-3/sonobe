@@ -81,6 +81,8 @@ pub struct AugmentedFCircuit<
     pub(super) cf2_cmT: Option<C2>,
 
     //#region Pairing folding: Additional data
+    pub(super) pf_cf3_u_i_cmW: Option<C2>, // input
+    pub(super) pf_cf4_u_i_cmW: Option<C2>, // input
     pub(super) pf_cf3_cmT: Option<C2>,
     pub(super) pf_cf4_cmT: Option<C2>,
     pub(super) pf_a_i: Option<C1::ScalarField>,
@@ -327,6 +329,7 @@ where
         // CycleFold part
 
         //#region Pairing folding: Compute intputs to cyclefold circuits
+        // PF-C.1. Compute pf_cfC.x and pf_cfD.x
         let a_zero_bits =
             vec![Boolean::<C1::ScalarField>::FALSE; C1::BaseField::MODULUS_BIT_SIZE as usize];
         let a_zero = NonNativeUintVar::from(&a_zero_bits);
@@ -371,6 +374,31 @@ where
         let cfE_x = vec![
             r_nonnat, U_i.cmE.x, U_i.cmE.y, cmT.x, cmT.y, U_i1.cmE.x, U_i1.cmE.y,
         ];
+
+        //#region Pairing folding: Compute instances
+        // PF-C.2 Construct `pf_cf3_u_i` and `pf_cf4_u_i`
+        let pf_cf3_u_i = CycleFoldCommittedInstanceVar {
+            // cf1_u_i.cmE = 0
+            cmE: GC2::zero(),
+            // cf1_u_i.u = 1
+            u: NonNativeUintVar::new_constant(cs.clone(), C1::BaseField::one())?,
+            // cf1_u_i.cmW is provided by the prover as witness
+            cmW: GC2::new_witness(cs.clone(), || Ok(self.pf_cf3_u_i_cmW.unwrap_or(C2::zero())))?,
+            // cf1_u_i.x is computed in step 1
+            x: pf_cfC_x,
+        };
+
+        let pf_cf4_u_i = CycleFoldCommittedInstanceVar {
+            // cf1_u_i.cmE = 0
+            cmE: GC2::zero(),
+            // cf1_u_i.u = 1
+            u: NonNativeUintVar::new_constant(cs.clone(), C1::BaseField::one())?,
+            // cf1_u_i.cmW is provided by the prover as witness
+            cmW: GC2::new_witness(cs.clone(), || Ok(self.pf_cf4_u_i_cmW.unwrap_or(C2::zero())))?,
+            // cf1_u_i.x is computed in step 1
+            x: pf_cfD_x,
+        };
+        //#endregion
 
         // ensure that cf1_u & cf2_u have as public inputs the cmW & cmE from main instances U_i,
         // u_i, U_i+1 coordinates of the commitments
@@ -425,6 +453,36 @@ where
             cf2_r_bits, cf2_cmT, cf1_U_i1, // the output from NIFS.V(cf1_r, cf_U, cfE_u)
             cf2_u_i,
         )?;
+
+        //#region Pairing folding: Compute chalenges and fold instances
+        let pf_cf3_r_bits = CycleFoldChallengeGadget::<C2, GC2>::get_challenge_gadget(
+            &mut transcript,
+            pp_hash.clone(),
+            cf_U_i1.to_native_sponge_field_elements()?,
+            pf_cf3_u_i.clone(),
+            pf_cf3_cmT.clone(),
+        )?;
+        let cf_U_i1 = NIFSFullGadget::<C2, GC2>::fold_committed_instance(
+            pf_cf3_r_bits,
+            pf_cf3_cmT,
+            cf_U_i1, // the output from NIFS.V(cf1_r, cf_U, cfE_u)
+            pf_cf3_u_i,
+        )?;
+
+        let pf_cf4_r_bits = CycleFoldChallengeGadget::<C2, GC2>::get_challenge_gadget(
+            &mut transcript,
+            pp_hash.clone(),
+            cf_U_i1.to_native_sponge_field_elements()?,
+            pf_cf4_u_i.clone(),
+            pf_cf4_cmT.clone(),
+        )?;
+        let cf_U_i1 = NIFSFullGadget::<C2, GC2>::fold_committed_instance(
+            pf_cf4_r_bits,
+            pf_cf4_cmT,
+            cf_U_i1, // the output from NIFS.V(cf1_r, cf_U, cfE_u)
+            pf_cf4_u_i,
+        )?;
+        //#endregion
 
         // Back to Primary Part
         // P.4.b compute and check the second output of F'
