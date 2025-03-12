@@ -425,6 +425,10 @@ where
     // CycleFold instances
     pub cf_W_i: CycleFoldWitness<C2>,
     pub cf_U_i: CycleFoldCommittedInstance<C2>,
+    //#region Pairing folding
+    pub pf_C_i: C1,
+    pub pf_D_i: C1,
+    //#endregion
 }
 
 /// Implements Nova+CycleFold's IVC, described in [Nova](https://eprint.iacr.org/2021/370.pdf) and
@@ -471,7 +475,22 @@ where
     /// CycleFold running instance
     pub cf_W_i: CycleFoldWitness<C2>,
     pub cf_U_i: CycleFoldCommittedInstance<C2>,
+
+    //#region Pairing folding
+    pub pf_C_i: C1,
+    pub pf_D_i: C1,
+    //#endregion
 }
+
+//#region Pairing folding
+const PF_STATE_C_I_POSITION: usize = 4;
+const PF_STATE_D_I_POSITION: usize = 5;
+const PF_EXTERNAL_INPUTS_A_I_POSITION: usize = 1;
+const PF_EXTERNAL_INPUTS_C_I_X_POSITION: usize = 2;
+const PF_EXTERNAL_INPUTS_C_I_Y_POSITION: usize = 3;
+const PF_EXTERNAL_INPUTS_C_PRIME_I_X_POSITION: usize = 4;
+const PF_EXTERNAL_INPUTS_C_PRIME_I_Y_POSITION: usize = 5;
+//#endregion
 
 impl<C1, GC1, C2, GC2, FC, CS1, CS2, const H: bool> FoldingScheme<C1, C2, FC>
     for Nova<C1, GC1, C2, GC2, FC, CS1, CS2, H>
@@ -639,6 +658,8 @@ where
             // cyclefold running instance
             cf_W_i: cf_W_dummy,
             cf_U_i: cf_U_dummy,
+            pf_C_i: C1::zero(),
+            pf_D_i: C1::zero(),
         })
     }
 
@@ -727,6 +748,13 @@ where
                 &self.u_i,
             )?;
 
+        //#region Pairing Folding: define variables
+        let pf_a_i = external_inputs[PF_EXTERNAL_INPUTS_A_I_POSITION];
+        let pf_c_i_x = external_inputs[PF_EXTERNAL_INPUTS_C_I_X_POSITION];
+        let pf_c_i_y = external_inputs[PF_EXTERNAL_INPUTS_C_I_Y_POSITION];
+        let pf_ci = C1::from(vec![pf_c_i_x, pf_c_i_y]);
+        //#endregion
+
         if self.i == C1::ScalarField::zero() {
             // base case
             augmented_F_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
@@ -749,6 +777,17 @@ where
                 cf_U_i: None,
                 cf1_cmT: None,
                 cf2_cmT: None,
+                pf_cf3_u_i_cmW: None,
+                pf_cf4_u_i_cmW: None,
+                pf_cf3_cmT: None,
+                pf_cf4_cmT: None,
+                pf_a_i: Some(pf_a_i.clone()),
+                pf_c_i: Some(external_inputs[PF_EXTERNAL_INPUTS_C_I_POSITION].clone()),
+                pf_c_prime_i: Some(external_inputs[PF_EXTERNAL_INPUTS_C_PRIME_I_POSITION].clone()),
+                pf_C_i: Some(self.pf_C_i.clone()),
+                pf_C_i1: None,
+                pf_D_i: Some(self.pf_D_i.clone()),
+                pf_D_i1: None,
             };
 
             #[cfg(test)]

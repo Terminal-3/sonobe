@@ -120,6 +120,8 @@ impl<C1: CurveGroup, C2: CurveGroup, GC2: CurveVar<C2, CF2<C2>>, FC: FCircuit<CF
             cf_U_i: None,
             cf1_cmT: None,
             cf2_cmT: None,
+            pf_cf3_u_i_cmW: None,
+            pf_cf4_u_i_cmW: None,
             pf_cf3_cmT: None,
             pf_cf4_cmT: None,
             pf_a_i: None,
@@ -333,9 +335,10 @@ where
         let a_zero_bits =
             vec![Boolean::<C1::ScalarField>::FALSE; C1::BaseField::MODULUS_BIT_SIZE as usize];
         let a_zero = NonNativeUintVar::from(&a_zero_bits);
+        let c1_zero = NonNativeAffineVar::new_constant(cs.clone(), C1::zero())?;
         let pf_cfC_x = vec![
             r_nonnat.clone(),
-            a_zero,
+            a_zero.clone(),
             pf_C_i1.x,
             pf_C_i1.y,
             pf_C_i.x,
@@ -343,8 +346,8 @@ where
             pf_c_i.x.clone(),
             pf_c_i.y.clone(),
             // we don't care about the last value as it's multiplied by zero
-            pf_c_i.x.clone(),
-            pf_c_i.y.clone(),
+            c1_zero.x.clone(),
+            c1_zero.y.clone(),
         ];
 
         let pf_cfD_x = vec![
@@ -356,24 +359,40 @@ where
             pf_D_i.y,
             pf_c_prime_i.x,
             pf_c_prime_i.y,
-            pf_c_i.x,
-            pf_c_i.y,
+            pf_c_i.x.clone(),
+            pf_c_i.y.clone(),
         ];
         //#endregion
 
+        //#region Pairing folding: This part of code is updated for the pairing folding circuit instead of the cyclefold circuit
         // C.1. Compute cf1_u_i.x and cf2_u_i.x
         let cfW_x = vec![
             r_nonnat.clone(),
+            a_zero.clone(),
+            U_i1.cmW.x,
+            U_i1.cmW.y,
             U_i.cmW.x,
             U_i.cmW.y,
             u_i.cmW.x,
             u_i.cmW.y,
-            U_i1.cmW.x,
-            U_i1.cmW.y,
+            // we don't care about the last value as it's multiplied by zero
+            c1_zero.x.clone(),
+            c1_zero.y.clone(),
         ];
         let cfE_x = vec![
-            r_nonnat, U_i.cmE.x, U_i.cmE.y, cmT.x, cmT.y, U_i1.cmE.x, U_i1.cmE.y,
+            r_nonnat.clone(),
+            a_zero.clone(),
+            U_i1.cmE.x,
+            U_i1.cmE.y,
+            U_i.cmE.x,
+            U_i.cmE.y,
+            cmT.x,
+            cmT.y,
+            // we don't care about the last value as it's multiplied by zero
+            c1_zero.x.clone(),
+            c1_zero.y.clone(),
         ];
+        //#endregion
 
         //#region Pairing folding: Compute instances
         // PF-C.2 Construct `pf_cf3_u_i` and `pf_cf4_u_i`
