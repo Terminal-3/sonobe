@@ -725,7 +725,7 @@ pub fn fold_cyclefold_circuit<CFG, C1, GC1, C2, GC2, CS2, const H: bool>(
     pp_hash: C1::ScalarField,               // public params hash
     cf_W_i: CycleFoldWitness<C2>,           // witness of the running instance
     cf_U_i: CycleFoldCommittedInstance<C2>, // running instance
-    cf_circuit: CycleFoldCircuit<CFG, GC1>,
+    cf_circuit: PairingCycleFoldCircuit<CFG, GC1>,
     mut rng: impl RngCore,
 ) -> Result<
     (

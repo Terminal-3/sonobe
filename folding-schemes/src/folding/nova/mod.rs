@@ -9,7 +9,7 @@ use ark_crypto_primitives::sponge::{
     Absorb, CryptographicSponge,
 };
 use ark_ec::CurveGroup;
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::{BigInt, BigInteger, PrimeField};
 use ark_r1cs_std::{prelude::CurveVar, R1CSVar};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Valid};
@@ -17,6 +17,7 @@ use ark_std::fmt::Debug;
 use ark_std::rand::RngCore;
 use ark_std::{One, UniformRand, Zero};
 use core::marker::PhantomData;
+use num_bigint::BigUint;
 
 use crate::folding::circuits::cyclefold::{
     fold_cyclefold_circuit, CycleFoldCircuit, CycleFoldCommittedInstance, CycleFoldConfig,
@@ -56,7 +57,10 @@ pub mod decider_circuits;
 pub mod decider_eth;
 pub mod decider_eth_circuit;
 
-use super::traits::{CommittedInstanceOps, Inputize, WitnessOps};
+use super::{
+    circuits::cyclefold::PairingCycleFoldCircuit,
+    traits::{CommittedInstanceOps, Inputize, WitnessOps},
+};
 
 /// Configuration for Nova's CycleFold circuit
 pub struct NovaCycleFoldConfig<C: CurveGroup> {
@@ -74,7 +78,7 @@ impl<C: CurveGroup> CycleFoldConfig for NovaCycleFoldConfig<C> {
 
 /// CycleFold circuit for computing random linear combinations of group elements
 /// in Nova instances.
-pub type NovaCycleFoldCircuit<C, GC> = CycleFoldCircuit<NovaCycleFoldConfig<C>, GC>;
+pub type NovaCycleFoldCircuit<C, GC> = PairingCycleFoldCircuit<NovaCycleFoldConfig<C>, GC>;
 
 #[derive(Debug, Clone, Eq, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct CommittedInstance<C: CurveGroup> {
@@ -483,13 +487,14 @@ where
 }
 
 //#region Pairing folding
-const PF_STATE_C_I_POSITION: usize = 4;
-const PF_STATE_D_I_POSITION: usize = 5;
-const PF_EXTERNAL_INPUTS_A_I_POSITION: usize = 1;
-const PF_EXTERNAL_INPUTS_C_I_X_POSITION: usize = 2;
-const PF_EXTERNAL_INPUTS_C_I_Y_POSITION: usize = 3;
-const PF_EXTERNAL_INPUTS_C_PRIME_I_X_POSITION: usize = 4;
-const PF_EXTERNAL_INPUTS_C_PRIME_I_Y_POSITION: usize = 5;
+#[derive(Debug, Clone)]
+pub struct PairingFoldingParams<C1: CurveGroup> {
+    pub pf_C_i1: C1,
+    pub pf_D_i1: C1,
+    pub pf_a_i: C1::ScalarField,
+    pub pf_c_i: C1,
+    pub pf_c_prime_i: C1,
+}
 //#endregion
 
 impl<C1, GC1, C2, GC2, FC, CS1, CS2, const H: bool> FoldingScheme<C1, C2, FC>
@@ -513,7 +518,9 @@ where
     type VerifierParam = VerifierParams<C1, C2, CS1, CS2, H>;
     type RunningInstance = (CommittedInstance<C1>, Witness<C1>);
     type IncomingInstance = (CommittedInstance<C1>, Witness<C1>);
-    type MultiCommittedInstanceWithWitness = ();
+    //#region Pairing folding
+    type MultiCommittedInstanceWithWitness = PairingFoldingParams<C1>;
+    //#endregion
     type CFInstance = (CycleFoldCommittedInstance<C2>, CycleFoldWitness<C2>);
     type IVCProof = IVCProof<C1, C2>;
 
@@ -668,9 +675,19 @@ where
         &mut self,
         mut rng: impl RngCore,
         external_inputs: Vec<C1::ScalarField>,
-        // Nova does not support multi-instances folding
-        _other_instances: Option<Self::MultiCommittedInstanceWithWitness>,
+        // Nova does not support multi-instances folding, however we reuse this variable for pairing folding
+        pf_instances: Option<Self::MultiCommittedInstanceWithWitness>,
     ) -> Result<(), Error> {
+        //#region Pairing folding
+        let PairingFoldingParams {
+            pf_c_i,
+            pf_c_prime_i,
+            pf_a_i,
+            pf_C_i1,
+            pf_D_i1,
+        } = pf_instances.ok_or_else(|| Error::Empty)?;
+        //#endregion
+
         // ensure that commitments are blinding if user has specified so.
         if H && self.i >= C1::ScalarField::one() {
             let blinding_commitments = if self.i == C1::ScalarField::one() {
@@ -693,10 +710,12 @@ where
 
         let augmented_F_circuit: AugmentedFCircuit<C1, C2, GC2, FC>;
 
+        //#region Pairing Folding
         // Nova does not support (by design) multi-instances folding
-        if _other_instances.is_some() {
-            return Err(Error::NoMultiInstances);
-        }
+        // if _other_instances.is_some() {
+        //     return Err(Error::NoMultiInstances);
+        // }
+        //#endregion
 
         if self.z_i.len() != self.F.state_len() {
             return Err(Error::NotSameLength(
@@ -748,13 +767,6 @@ where
                 &self.u_i,
             )?;
 
-        //#region Pairing Folding: define variables
-        let pf_a_i = external_inputs[PF_EXTERNAL_INPUTS_A_I_POSITION];
-        let pf_c_i_x = external_inputs[PF_EXTERNAL_INPUTS_C_I_X_POSITION];
-        let pf_c_i_y = external_inputs[PF_EXTERNAL_INPUTS_C_I_Y_POSITION];
-        let pf_ci = C1::from(vec![pf_c_i_x, pf_c_i_y]);
-        //#endregion
-
         if self.i == C1::ScalarField::zero() {
             // base case
             augmented_F_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
@@ -782,12 +794,12 @@ where
                 pf_cf3_cmT: None,
                 pf_cf4_cmT: None,
                 pf_a_i: Some(pf_a_i.clone()),
-                pf_c_i: Some(external_inputs[PF_EXTERNAL_INPUTS_C_I_POSITION].clone()),
-                pf_c_prime_i: Some(external_inputs[PF_EXTERNAL_INPUTS_C_PRIME_I_POSITION].clone()),
+                pf_c_i: Some(pf_c_i.clone()),
+                pf_c_prime_i: Some(pf_c_prime_i.clone()),
                 pf_C_i: Some(self.pf_C_i.clone()),
-                pf_C_i1: None,
+                pf_C_i1: Some(pf_C_i1.clone()),
                 pf_D_i: Some(self.pf_D_i.clone()),
-                pf_D_i1: None,
+                pf_D_i1: Some(pf_D_i1.clone()),
             };
 
             #[cfg(test)]
@@ -801,17 +813,43 @@ where
                 assert_eq!(U_i1, expected);
             }
         } else {
+            //#region Pairing folding
+            // Pairing folding TODO: check that it's padded (if necessary)
+            let a_bits = BigInteger::to_bits_le(
+                &Into::<<C1::ScalarField as PrimeField>::BigInt>::into(pf_a_i),
+            );
+            let zero_bits = a_bits.iter().map(|_| false).collect::<Vec<_>>();
             // CycleFold part:
             let cfW_circuit = NovaCycleFoldCircuit::<C1, GC1> {
                 _gc: PhantomData,
+                a_bits: Some(zero_bits.clone()),
                 r_bits: Some(r_bits.clone()),
                 points: Some(vec![self.U_i.clone().cmW, self.u_i.clone().cmW]),
             };
             let cfE_circuit = NovaCycleFoldCircuit::<C1, GC1> {
                 _gc: PhantomData,
+                a_bits: Some(zero_bits.clone()),
                 r_bits: Some(r_bits.clone()),
                 points: Some(vec![self.U_i.clone().cmE, cmT]),
             };
+            let cfC_circuit = NovaCycleFoldCircuit::<C1, GC1> {
+                _gc: PhantomData,
+                a_bits: Some(zero_bits.clone()),
+                r_bits: Some(r_bits.clone()),
+                points: Some(vec![self.pf_C_i.clone(), pf_c_i.clone(), C1::zero()]),
+            };
+            let cfD_circuit = NovaCycleFoldCircuit::<C1, GC1> {
+                _gc: PhantomData,
+                a_bits: Some(a_bits.clone()),
+                r_bits: Some(r_bits.clone()),
+                points: Some(vec![
+                    self.pf_D_i.clone(),
+                    pf_c_prime_i.clone(),
+                    pf_c_i.clone(),
+                ]),
+            };
+
+            //#endregion
 
             // fold self.cf_U_i + cfW_U -> folded running with cfW
             let (_cfW_w_i, cfW_u_i, cfW_W_i1, cfW_U_i1, cfW_cmT, _) = self.fold_cyclefold_circuit(
@@ -829,6 +867,27 @@ where
                 cfE_circuit,
                 &mut rng,
             )?;
+
+            //#region Pairing folding
+            let (_pf_cfC_w_i, pf_cfC_u_i, cf_W_i1, cf_U_i1, pf_cfC_cmT, _) = self
+                .fold_cyclefold_circuit(
+                    &mut transcript,
+                    cf_W_i1, // CycleFold running instance witness
+                    cf_U_i1, // CycleFold running instance
+                    cfC_circuit,
+                    &mut rng,
+                )?;
+
+            let (_pf_cfD_w_i, pf_cfD_u_i, cf_W_i1, cf_U_i1, pf_cfD_cmT, _) = self
+                .fold_cyclefold_circuit(
+                    &mut transcript,
+                    cf_W_i1, // CycleFold running instance witness
+                    cf_U_i1, // CycleFold running instance
+                    cfD_circuit,
+                    &mut rng,
+                )?;
+
+            //#endregion
 
             augmented_F_circuit = AugmentedFCircuit::<C1, C2, GC2, FC> {
                 _gc2: PhantomData,
@@ -851,6 +910,17 @@ where
                 cf_U_i: Some(self.cf_U_i.clone()),
                 cf1_cmT: Some(cfW_cmT),
                 cf2_cmT: Some(cf_cmT),
+                pf_cf3_cmT: Some(pf_cfC_cmT),
+                pf_cf4_cmT: Some(pf_cfD_cmT),
+                pf_cf3_u_i_cmW: Some(pf_cfC_u_i.cmW),
+                pf_cf4_u_i_cmW: Some(pf_cfD_u_i.cmW),
+                pf_a_i: Some(pf_a_i.clone()),
+                pf_c_i: Some(pf_c_i.clone()),
+                pf_c_prime_i: Some(pf_c_prime_i.clone()),
+                pf_C_i: Some(self.pf_C_i.clone()),
+                pf_C_i1: Some(pf_C_i1.clone()),
+                pf_D_i: Some(self.pf_D_i.clone()),
+                pf_D_i1: Some(pf_D_i1.clone()),
             };
 
             self.cf_W_i = cf_W_i1;
@@ -916,6 +986,8 @@ where
             u_i: self.u_i.clone(),
             cf_W_i: self.cf_W_i.clone(),
             cf_U_i: self.cf_U_i.clone(),
+            pf_C_i: self.pf_C_i.clone(),
+            pf_D_i: self.pf_D_i.clone(),
         }
     }
 
@@ -934,6 +1006,8 @@ where
             u_i,
             cf_W_i,
             cf_U_i,
+            pf_C_i,
+            pf_D_i,
         } = ivc_proof;
         let (pp, vp) = params;
 
@@ -974,6 +1048,8 @@ where
             U_i,
             cf_W_i,
             cf_U_i,
+            pf_C_i,
+            pf_D_i,
         })
     }
 
@@ -990,6 +1066,8 @@ where
             u_i,
             cf_W_i,
             cf_U_i,
+            pf_C_i,
+            pf_D_i,
         } = ivc_proof;
 
         let sponge = PoseidonSponge::<C1::ScalarField>::new(&vp.poseidon_config);

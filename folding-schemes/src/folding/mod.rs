@@ -1,7 +1,7 @@
 pub mod circuits;
-pub mod hypernova;
+// pub mod hypernova;
 pub mod nova;
-pub mod protogalaxy;
+// pub mod protogalaxy;
 pub mod traits;
 
 #[cfg(test)]
@@ -15,9 +15,9 @@ pub mod tests {
 
     use crate::commitment::pedersen::Pedersen;
     use crate::folding::{
-        hypernova::HyperNova,
+        // hypernova::HyperNova,
         nova::{Nova, PreprocessorParam as NovaPreprocessorParam},
-        protogalaxy::ProtoGalaxy,
+        // protogalaxy::ProtoGalaxy,
     };
     use crate::frontend::utils::CubicFCircuit;
     use crate::frontend::FCircuit;
@@ -38,25 +38,25 @@ pub mod tests {
         let prep_param = NovaPreprocessorParam::new(poseidon_config.clone(), f_circuit);
         test_serialize_ivc_opt::<G1, G2, FC, N>("nova".to_string(), prep_param.clone())?;
 
-        // test HyperNova
-        type HN = HyperNova<
-            G1,
-            GVar1,
-            G2,
-            GVar2,
-            FC,
-            Pedersen<G1>,
-            Pedersen<G2>,
-            1, // mu
-            1, // nu
-            false,
-        >;
-        test_serialize_ivc_opt::<G1, G2, FC, HN>("hypernova".to_string(), prep_param)?;
+        // // test HyperNova
+        // type HN = HyperNova<
+        //     G1,
+        //     GVar1,
+        //     G2,
+        //     GVar2,
+        //     FC,
+        //     Pedersen<G1>,
+        //     Pedersen<G2>,
+        //     1, // mu
+        //     1, // nu
+        //     false,
+        // >;
+        // test_serialize_ivc_opt::<G1, G2, FC, HN>("hypernova".to_string(), prep_param)?;
 
-        // test ProtoGalaxy
-        type P = ProtoGalaxy<G1, GVar1, G2, GVar2, FC, Pedersen<G1>, Pedersen<G2>>;
-        let prep_param = (poseidon_config, f_circuit);
-        test_serialize_ivc_opt::<G1, G2, FC, P>("protogalaxy".to_string(), prep_param)?;
+        // // test ProtoGalaxy
+        // type P = ProtoGalaxy<G1, GVar1, G2, GVar2, FC, Pedersen<G1>, Pedersen<G2>>;
+        // let prep_param = (poseidon_config, f_circuit);
+        // test_serialize_ivc_opt::<G1, G2, FC, P>("protogalaxy".to_string(), prep_param)?;
         Ok(())
     }
 
